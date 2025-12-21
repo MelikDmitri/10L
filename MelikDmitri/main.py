@@ -1,16 +1,7 @@
-# This is a sample Python script.
+# ГЛАВНЫЙ КОНТРОЛЛЕР (насос + спринклер)
 
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
+from machine import Pin          # 1. Управление проводами (GPIO)
+import time                      # 2. Таймеры и паузы
+from neopixel import NeoPixel    # 3. Цветной светодиод статус
 
-
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press Ctrl+F8 to toggle the breakpoint.
-
-
-# Press the green button in the gutter to run the script.
-if __name__ == '__main__':
-    print_hi('PyCharm')
-
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+print("СИСТЕМА ПОЖАРОТУШЕНИЯ СТАРТОВАЛА")  # 4. Приветствие
