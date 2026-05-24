@@ -1,0 +1,135 @@
+// Ссылка на тест проекта: https://wokwi.com/projects/455471271548549121
+#include <OneWire.h>                    // Библиотека OneWire для DS18B20
+#include <DallasTemperature.h>          // Библиотека DallasTemperature для DS18B20
+
+// Пины
+#define DS18B20_DQ 4
+#define DS18B20_VCC 5
+#define GAS_AOUT 35      
+#define FLAME_POT 34    
+#define BUTTON_PIN 0
+#define BUZZER_BZ1 15    
+#define RELAY_IN 13
+
+// Светодиоды
+#define RED_LED   14     // Пожар
+#define YELLOW_LED 27    // Предупреждение
+#define GREEN_LED 26     // Норма
+#define BLUE_LED  25     // Тушение
+
+OneWire oneWire(DS18B20_DQ);            // Создаём объект OneWire для пина DS18B20_DQ
+DallasTemperature ds18b20(&oneWire);    // Создаём объект DallasTemperature, привязанный к oneWire
+
+void setup() {
+  Serial.begin(115200);                 // Запускаем Serial Monitor на скорости 115200 бод
+  
+  pinMode(DS18B20_VCC, OUTPUT);         // Настраиваем пин питания DS18B20 как выход
+  digitalWrite(DS18B20_VCC, HIGH);      // Включаем питание DS18B20 (3.3V)
+  
+  pinMode(GAS_AOUT, INPUT);             // Газовый датчик - аналоговый вход
+  pinMode(FLAME_POT, INPUT);            // Пламя/потенциометр - аналоговый вход
+  pinMode(BUTTON_PIN, INPUT_PULLUP);    // Кнопка с внутренним подтягивающим резистором
+  
+  pinMode(RELAY_IN, OUTPUT);            // Реле тушения - выход
+  pinMode(BUZZER_BZ1, OUTPUT);          // Пьезоизлучатель - выход
+  pinMode(RED_LED, OUTPUT);             // Красный светодиод - выход
+  pinMode(YELLOW_LED, OUTPUT);          // Жёлтый светодиод - выход
+  pinMode(GREEN_LED, OUTPUT);           // Зелёный светодиод - выход
+  pinMode(BLUE_LED, OUTPUT);            // Синий светодиод - выход
+  
+  allLEDsOff();                         // Выключаем все светодиоды при старте
+  digitalWrite(GREEN_LED, HIGH);        // Включаем зелёный светодиод (нормальное состояние)
+  digitalWrite(RELAY_IN, HIGH);         // Реле выключено (HIGH=выкл по умолчанию)
+  
+  ds18b20.begin();                      // Инициализируем датчик DS18B20
+  Serial.println("СИСТЕМА ПОЖАРОТУШЕНИЯ ГОТОВА К ЗАПУСКУ"); // Сообщение о готовности
+}
+
+void loop() {
+  // Чтение 3 датчиков
+  ds18b20.requestTemperatures();        // Запрашиваем температуру у всех подключённых DS18B20
+  float temp = ds18b20.getTempCByIndex(0); // Читаем температуру первого датчика (в Цельсиях)
+  int gas = analogRead(GAS_AOUT);       // Читаем значение газового датчика (0-4095)
+  int flame_pot = analogRead(FLAME_POT); // Читаем значение пламя/потенциометр (0-4095)
+  
+  // Пороги нормы
+  float tempNorm = 35.0;                // Нормальная температура <35°C
+  int gasNorm = 2000;                   // Нормальный газ <2000 (жёлтый при превышении)
+  int flameNorm = 3276;                 // Нормальное пламя <80% (3276/4095)
+  
+  // Проверка состояний
+  bool gasHigh = (gas > gasNorm);       // Газ выше нормы → Жёлтый
+  bool fireHigh = (temp > 50 || flame_pot > flameNorm || gas > 3500); // Пожарные условия
+  
+  // Основная логика состояний
+  if (!gasHigh && !fireHigh) {          // Всё в порядке - зелёный
+    greenLED();                         // Включаем зелёный светодиод
+    noTone(BUZZER_BZ1);                 // Выключаем звук buzzer
+    digitalWrite(RELAY_IN, HIGH);       // Реле тушения выключено
+    Serial.println("ВСЕ ПОКАЗАТЕЛИ НОРМАЛЬНЫ");    // Выводим статус в Serial Monitor
+  }
+  else if (gasHigh && !fireHigh) {      // Газ выше нормы - жёлтый
+    yellowLED();                        // Включаем жёлтый светодиод
+    tone(BUZZER_BZ1, 1000, 300);        // Отрывистый писк 1000Гц длительностью 300мс
+    digitalWrite(RELAY_IN, HIGH);       // Реле тушения выключено
+    Serial.println("ГАЗ ВЫШЕ НОРМЫ");   // Выводим статус в Serial Monitor
+  }
+  else if (fireHigh) {                  // Пожар - красный
+    redLED();                           // Включаем красный светодиод
+    tone(BUZZER_BZ1, 1500, 500);        // Длительный писк 1500Гц на 500мс
+    digitalWrite(RELAY_IN, LOW);        // Включаем реле тушения
+    
+    Serial.println("ПОЖАР");            // Выводим статус в Serial Monitor
+    delay(1500);                        // Пауза 1.5 секунды в красном состоянии
+    // Тушение - синий
+    blueLED();                          // Включаем синий светодиод (тушение)
+    digitalWrite(RELAY_IN, LOW);        // Реле тушения включено
+    
+    Serial.println("ТУШЕНИЕ");          // Выводим статус тушения
+    
+    // Цикл тушения 5 сек
+    unsigned long start = millis();     // Фиксируем время начала тушения
+    while (millis() - start < 5000) {   // Пока не прошло 5 секунд
+      tone(BUZZER_BZ1, 800, 400);      // Низкий тон 800Гц на 400мс (пищит пока синий горит)
+      delay(400);                       // Пауза между сигналами
+    }
+    
+    // Пожар потушен - выключение всех систем
+    digitalWrite(RELAY_IN, HIGH);       // Выключаем реле тушения
+    noTone(BUZZER_BZ1);                 // Полностью выключаем buzzer
+    allLEDsOff();                       // Выключаем ВСЕ светодиоды (в т.ч. синий)
+    Serial.println("ПОЖАР ПОТУШЕН");    // Подтверждение завершения
+  }
+  
+  // Вывод показателей
+  Serial.printf("Газ=%d(<2000) Пламя=%d(<3276)\n\n", gas, flame_pot);
+  
+  delay(1200);                          // Пауза 1.2 секунды до следующей проверки
+}
+
+void allLEDsOff() {                     // Функция выключения всех светодиодов
+  digitalWrite(RED_LED, LOW);           // Выключаем красный светодиод
+  digitalWrite(YELLOW_LED, LOW);        // Выключаем жёлтый светодиод
+  digitalWrite(GREEN_LED, LOW);         // Выключаем зелёный светодиод
+  digitalWrite(BLUE_LED, LOW);          // Выключаем синий светодиод
+}
+
+void greenLED() {                       // Функция включения зелёного светодиода
+  allLEDsOff();                         // Сначала выключаем все светодиоды
+  digitalWrite(GREEN_LED, HIGH);        // Включаем зелёный светодиод
+}
+
+void yellowLED() {                      // Функция включения жёлтого светодиода
+  allLEDsOff();                         // Сначала выключаем все светодиоды
+  digitalWrite(YELLOW_LED, HIGH);       // Включаем жёлтый светодиод
+}
+
+void redLED() {                         // Функция включения красного светодиода
+  allLEDsOff();                         // Сначала выключаем все светодиоды
+  digitalWrite(RED_LED, HIGH);          // Включаем красный светодиод
+}
+
+void blueLED() {                        // Функция включения синего светодиода
+  allLEDsOff();                         // Сначала выключаем все светодиоды
+  digitalWrite(BLUE_LED, HIGH);         // Включаем синий светодиод
+}
